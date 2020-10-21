@@ -74,11 +74,31 @@ function crc32c_of_int32($int32)
 	return $crc ^ 0xFFFFFFFF;
 }
 
+/* Determine if the file is to be blacklisted */
+function blacklisted($file_name, $file_contents)
+{
+	if (strlen($file_contents) < 256) return true;
+
+	$extensions = array("1", "2", "3", "4", "5", "6", "7", "8", "9", "ac", "am", "bmp", "build", "cfg", "chm", "changelog", "class", "cmake", "conf", "config", "contributors", "copying", "csproj", "css", "csv", "cvsignore", "dat", "data", "dtd", "dts", "dtsi", "eps", "geojson", "gif", "gitignore", "glif", "gmo", "guess", "hex", "html", "htm", "ico", "idx", "in", "inc", "info", "ini", "ipynb", "jpg", "jpeg", "json", "license", "log", "m4", "map", "markdown", "md", "md5", "mk", "makefile", "meta", "mxml", "notice", "out", "pack", "pdf", "pem", "phtml", "png", "po", "prefs", "properties", "readme", "result", "rst", "sample", "scss", "sha", "sha1", "sha2", "sha256", "sln", "spec", "sub", "svg", "svn-base", "tab", "template", "test", "tex", "todo", "txt", "utf-8", "version", "vim", "wav", "xht", "xhtml", "xml", "xpm", "xsd", "xul", "yaml", "yml");
+
+	$ext = pathinfo($file_name, PATHINFO_EXTENSION);
+	if (!$ext) return true;
+	if (in_array($ext, $extensions)) return true;
+
+	if (substr($file_contents, 0, 1) == "{") return true;
+	if (strtolower(substr($file_contents, 0, 5)) == "<?xml") return true;
+	if (strtolower(substr($file_contents, 0, 5)) == "<html") return true;
+	if (strtolower(substr($file_contents, 0, 5)) == "<ac3d") return true;
+	return false;
+}
+
 /* Return WFP fingerprints for $filename */
 function calc_wfp($filename)
 {
 	/* Read file contents */
 	$src = file_get_contents($filename);
+
+	if (blacklisted($filename, $src)) return "";
 
 	/* Gram/Window configuration. Modifying these values would require rehashing the KB	*/
 	$GRAM = 30;
@@ -153,15 +173,35 @@ function calc_wfp($filename)
 	return $out;
 }
 
+function recurse_wfp($path, $wfp="")
+{
+	$dir = opendir($path);
+	while ($file = readdir($dir))
+	{
+		$newpath = "$path/$file";
+		if ($file == "." || $file =="..") continue;
+		if (is_dir($newpath))
+			$wfp = recurse_wfp($newpath, $wfp);
+		elseif (is_file($newpath))
+			$wfp .= calc_wfp($newpath);
+	}
+	return $wfp;
+}
+
 function osskb_query($url, $wfp)
 {
+	$APIKEY="";
+	if (is_file($_SERVER['HOME']."/.scanoss-key"))
+	{
+		$APIKEY = trim(file_get_contents($_SERVER['HOME']."/.scanoss-key"));
+	}
 	$boundary = "---------------------" . md5(rand());
 	$data = "--{$boundary}\r\n";
 	$data .= "Content-Disposition: form-data; name=\"file\"; filename=\"file.wfp\"\r\n";
 	$data .= "application/octet-stream\r\n\r\n";
 	$data .= $wfp . "\r\n";
 	$data .= "--{$boundary}--\r\n\r\n";
-	$params = array('http' => array('method' => 'POST', 'header' => 'Content-Type: multipart/form-data; boundary=' . $boundary, 'content' => $data));
+	$params = array('http' => array('method' => 'POST',  'header' => "X-Session: $APIKEY\r\nContent-Type: multipart/form-data; boundary=" . $boundary, 'content' => $data));
 	$ctx = stream_context_create($params);
 	$fp = fopen($url, 'rb', false, $ctx);
 	if ($fp) {
@@ -181,15 +221,29 @@ if ($argc != 2)
 
 /* Verify that parameter is a valid file */
 $path = $argv[1];
-if (!is_file($path))
+$wfp = "";
+if (is_file($path))
+{
+	/* Calculate wfp fingerprints */
+	$wfp = calc_wfp($path);
+}
+elseif (is_dir($path))
+{
+	$wfp = recurse_wfp($path, $wfp);
+}
+else
 {
 	print "The path specified is not a file\n";
 	exit(0);
 }
 
-/* Calculate wfp fingerprints */
-$wfp = calc_wfp($path);
 
 /* Post fingerprints to OSSKB API */
-print osskb_query("https://osskb.org/api/scan/direct", $wfp);
+$APIURL="https://osskb.org/api/scan/direct";
+if (is_file($_SERVER['HOME']."/.scanoss-url"))
+{
+	$APIURL = trim(file_get_contents($_SERVER['HOME']."/.scanoss-url"));
+}
+print osskb_query($APIURL, $wfp);
 ?>
+
