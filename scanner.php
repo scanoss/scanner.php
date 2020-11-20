@@ -150,10 +150,10 @@ function calc_wfp($filename)
 					$hash = crc32c_of_int32($hash);
 					if ($line != $last_line)
 					{
-						$out .= "\n$line=".dechex($hash);
+						$out .= "\n$line=".sprintf("%08x", $hash);
 						$last_line = $line;
 					}
-					else $out .= ",".dechex($hash);
+					else $out .= ",".sprintf("%08x", $hash);
 
 					if ($counter++ >= $LIMIT) break;
 				}
