@@ -21,20 +21,6 @@
 * along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-/* Calculate CRC32C value for $word */
-function crc32c_of_string($word)
-{
-	$len = strlen($word);
-	$crc = 0xFFFFFFFF;
-	for ($i = 0; $i < $len; $i++)
-	{
-		$crc = $crc ^ ord($word[$i]);
-		for ($j = 7; $j >= 0; $j--)
-			$crc = ($crc >> 1) ^ (0x82F63B78 & -($crc & 1));
-	}
-	return $crc ^ 0xFFFFFFFF;
-}
-
 /* Convert case to lowercase, and return zero if it isn't a letter or number
 Do it fast and independent from the locale configuration (avoid string.h) */
 function normalize($Byte)
@@ -45,14 +31,6 @@ function normalize($Byte)
 	if ($Byte >= "a") return $Byte;
 	if (($Byte >= "A") && ($Byte <= "Z")) return strtolower($Byte);
 	return "";
-}
-
-function smaller_hash($window)
-{
-	$out = 0xFFFFFFFF;
-	for ($i = 0; $i < count($window); $i++)
-		if ($window[$i] < $out) $out = $window[$i];
-	return $out;
 }
 
 /* Calculate CRC32C value for an int32 */
@@ -136,24 +114,24 @@ function calc_wfp($filename)
 		{
 
 			/* Add fingerprint to the window */
-			$window[$window_ptr++] = crc32c_of_string($gram);
+			$window[$window_ptr++] = hexdec(hash('crc32c', $gram));
 
 			/* Got a full window? */
 			if ($window_ptr >= $WINDOW)
 			{
 
 				/* Add hash */
-				$hash = smaller_hash($window);
+				$hash = \min($window);
 				if ($hash != $last_hash)
 				{
 					$last_hash = $hash;
 					$hash = crc32c_of_int32($hash);
 					if ($line != $last_line)
 					{
-						$out .= "\n$line=".dechex($hash);
+						$out .= "\n$line=".sprintf("%08x", $hash);
 						$last_line = $line;
 					}
-					else $out .= ",".dechex($hash);
+					else $out .= ",".sprintf("%08x", $hash);
 
 					if ($counter++ >= $LIMIT) break;
 				}
